@@ -146,7 +146,7 @@ elseif nargin==2 % Input colormap length and colorscheme.
 	assert(isnumeric(N),'The first argument must be a scalar numeric, or empty.')
 	assert(ischar(scheme)&&isrow(scheme),'The second argument must be a 1xN char.')
 	tmp = strncmp('*',scheme,1);
-	[map,num,typ] = bmSample(N,tmp,raw(bmMatch({raw.str},scheme(1+tmp:end))));
+	[map,num,typ] = bmSample(N,tmp,raw(bmMatch(scheme,tmp,raw)));
 elseif isnumeric(N) % Input colormap length and the preselected colorscheme.
 	assert(~isempty(idp),msg)
 	[map,num,typ] = bmSample(N,isr,raw(idp));
@@ -161,7 +161,7 @@ else
 			num = [raw.num];
 		otherwise % Store the preselected colorscheme token.
 			tmp = strncmp('*',N,1);
-			idp = bmMatch({raw.str},N(1+tmp:end));
+			idp = bmMatch(N,tmp,raw);
 			typ = raw(idp).typ;
 			num = raw(idp).num;
 			% Only update persistent values if colorscheme name is okay:
@@ -173,9 +173,10 @@ end
 %
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%brewermap
-function idx = bmMatch(vec,str)
-% Match the requested colorscheme name to name sin the raw data structure.
-idx = strcmpi(vec,str);
+function idx = bmMatch(str,tmp,raw)
+% Match the requested colorscheme name to names in the raw data structure.
+str = str(1+tmp:end);
+idx = strcmpi({raw.str},str);
 assert(any(idx),'Colorscheme "%s" is not supported. Check the colorscheme list.',str)
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%bmMatch
@@ -310,7 +311,7 @@ drawnow()
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%bmPlotFig
 function [idx,itp] = bmIndex(N,num,typ)
-% Ensure exactly the same colors as in the online ColorBrewer colorschemes.
+% Ensure exactly the same colors as the online ColorBrewer colorschemes.
 %
 itp = N>num;
 switch typ

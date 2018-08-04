@@ -43,7 +43,7 @@ function [map,scheme] = brewermap_view(N,scheme)
 %%% Inputs (*=default):
 %  N  = NumericScalar, an integer to define the colormap length.
 %     = *[], colormap length of one hundred and twenty-eight (128).
-%     = {axes/figure handles}, their colormaps will be updated by BREWERMAP_VIEW.
+%     = CellArray of axes/figure handles, to be updated by BREWERMAP_VIEW.
 %  scheme = CharRowVector, a ColorBrewer colorscheme name.
 %
 %%% Outputs (these block execution until the figure is deleted!):
@@ -57,34 +57,33 @@ function [map,scheme] = brewermap_view(N,scheme)
 persistent H
 %
 dfn = 128;
-xtH = {};
+upb = false;
+hgc = {};
+nmr = dfn;
+%
 % Parse colormap size:
 if nargin<1 || isnumeric(N)&&isempty(N)
 	N = dfn;
-elseif iscell(N)&&numel(N)
-	ish = all(1==cellfun('prodofsize',N)&cellfun(@ishghandle,N));
-	assert(ish,'Input <N> may be a cell array of scalar axes or figure handles.')
-	xtH = N;
-	N = size(colormap(xtH{1}),1);
-else
-	assert(isnumeric(N)&&isscalar(N),'Input <N> must be a scalar numeric.')
+elseif isnumeric(N)
+	assert(isscalar(N),'Input <N> can be a scalar numeric. NUMEL: %d',numel(N))
 	assert(isreal(N)&&fix(N)==N&&N>0,'Input <N> must be positive real integer: %g+%gi',N,imag(N))
 	N = double(N);
+elseif iscell(N)&&numel(N)
+	hgc = N(:);
+	ish = all(1==cellfun('prodofsize',hgc)&cellfun(@ishghandle,hgc));
+	assert(ish,'Input <N> may be a cell array of axes handles or figure handles.')
+	nmr = [cellfun(@(h)size(colormap(h),1),hgc),dfn];
+	N = nmr(1);
+else
+	error('Input <N> may be a numeric scalar/empty, or a cell array of handles.')
 end
-%
-[mcs,mun,pyt] = brewermap('list');
 %
 % Parse colorscheme name:
-if nargin<2
-	scheme = mcs{1+rem(round(now*1e7),numel(mcs))};
-else
-	assert(ischar(scheme)&&isrow(scheme),'Second input <scheme> must be a 1xN char.')
+if nargin>1
+	assert(ischar(scheme)&&isrow(scheme),'Second input <scheme> must be a 1xN char vector.')
 end
-% Check if a reversed colormap was requested:
-isR = strncmp(scheme,'*',1);
-scheme = scheme(1+isR:end);
 %
-%% Create Figure %%
+%% Ensure Figure Exists %%
 %
 % LHS and RHS slider bounds/limits, and slider step sizes:
 lbd = 1;
@@ -92,8 +91,10 @@ rbd = dfn;
 stp = [1,10]; % [minor,major]
 %
 % Define the 3D cube axis order:
-xyz = 'RGB';
+xyz = 'RGB'; % choose order
 [~,xyz] = ismember(xyz,'RGB');
+%
+[mcs,mun,pyt] = brewermap('list');
 %
 if isempty(H) || ~ishghandle(H.fig)
 	% Check brewermap version:
@@ -101,31 +102,43 @@ if isempty(H) || ~ishghandle(H.fig)
 	assert(all(35==[numel(mcs),numel(mun),numel(pyt)]),ers,'array size')
 	tmp = find(any(diff(+char(pyt)),2));
 	assert(numel(tmp)==2&&all(tmp==[9;17]),ers,'scheme name sequence')
-	%
 	% Create a new figure:
 	ClBk = struct('bmvChgS',@bmvChgS, 'bmvRevM',@bmvRevM,...
 		'bmv2D3D',@bmv2D3D, 'bmvDemo',@bmvDemo, 'bmvSldr',@bmvSldr);
 	H = bmvPlot(ClBk, xyz, lbd, rbd, stp, mcs);
+	H.rev = false;
+	H.sch = mcs{1+mod(round(now*1e7),numel(mcs))};
 end
 %
-set(H.bGrp,'SelectedObject',H.bEig(strcmpi(scheme,mcs)));
+if nargin>1
+	% Check if a reversed colormap was requested:
+	H.rev = strncmp(scheme,'*',1);
+	H.sch = scheme(1+H.rev:end);
+end
+%
+set(H.bGrp,'SelectedObject',H.bEig(strcmpi(H.sch,mcs)));
 set(H.vSld,'Value',max(lbd,min(rbd,N)));
 %
 bmvUpDt()
 %
 if nargout
 	waitfor(H.fig);
+	scheme = makeName();
 else
 	clear map
 end
 %
 %% Nested Functions %%
 %
+	function str = makeName()
+		str = [char(42*ones(1,+H.rev)),H.sch];
+	end
+%
 	function bmvUpDt()
 		% Update all graphics objects in the figure.
 		%
 		% Get ColorBrewer colormap and grayscale equivalent:
-		[map,num,typ] = brewermap(N,[char(42*ones(1,isR)),scheme]);
+		[map,num,typ] = brewermap(N,makeName());
 		mag = map*[0.298936;0.587043;0.114021];
 		%
 		% Update colorbar values:
@@ -134,29 +147,31 @@ end
 		set(H.cbIm(2), 'CData',repmat(mag,[1,1,3]))
 		%
 		% Update 2D line / 3D patch values:
-		if  get(H.D2D3, 'Value') % 2D
+		if  get(H.is2d, 'Value') % 2D
 			set(H.ln2D, 'XData',linspace(0,1,abs(N)));
-			set(H.ln2D, {'YData'},num2cell([map,mag],1).');
+			set(H.ln2D,{'YData'},num2cell([map,mag],1).');
 		else % 3D
 			set(H.pt3D,...
 				'XData',map(:,xyz(1)),...
 				'YData',map(:,xyz(2)),...
-				'ZData',map(:,xyz(3)), 'FaceVertexCData',map)
+				'ZData',map(:,xyz(3)),...
+				'FaceVertexCData',map)
 		end
 		%
 		% Update reverse button:
-		set(H.bRev, 'Value',isR)
+		set(H.bRev, 'Value',H.rev)
 		%
 		% Update warning text:
-		str = {typ;sprintf('%d Nodes',num)};
+		str = {[typ,' '];sprintf('%d Nodes ',num)};
 		set(H.warn,'String',str);
 		%
 		% Update parameter value text:
 		set(H.vTxt(1), 'String',sprintf('N = %.0f',N));
 		%
 		% Update external axes/figure:
-		for k = find(cellfun(@ishghandle,xtH))
-			colormap(xtH{k},map);
+		nmr(1) = N;
+		for k = find(cellfun(@ishghandle,hgc))
+			colormap(hgc{k},brewermap(nmr(k),makeName()));
 		end
 		%
 		drawnow()
@@ -167,11 +182,11 @@ end
 		%
 		if get(h,'Value') % 2D
 			set(H.ax3D, 'HitTest','off', 'Visible','off')
-			set(H.ax2D, 'HitTest','on')
+			set(H.ax2D, 'HitTest','on', 'Visible','on')
 			set(H.pt3D, 'Visible','off')
 			set(H.ln2D, 'Visible','on')
 		else % 3D
-			set(H.ax2D, 'HitTest','off')
+			set(H.ax2D, 'HitTest','off', 'Visible','off')
 			set(H.ax3D, 'HitTest','on', 'Visible','on')
 			set(H.ln2D, 'Visible','off')
 			set(H.pt3D, 'Visible','on')
@@ -183,7 +198,7 @@ end
 	function bmvChgS(~,e)
 		% Change the colorscheme.
 		%
-		scheme = get(e.NewValue,'String');
+		H.sch = get(e.NewValue,'String');
 		%
 		bmvUpDt()
 	end
@@ -191,7 +206,7 @@ end
 	function bmvRevM(h,~)
 		% Reverse the colormap.
 		%
-		isR = get(h,'Value');
+		H.rev = get(h,'Value');
 		%
 		bmvUpDt()
 	end
@@ -204,30 +219,27 @@ end
 		bmvUpDt()
 	end
 %
-mov = -1;
 	function bmvDemo(h,~)
 		% Display all ColorBrewer colorschemes sequentially.
 		%
-		cnt = 0;
+		cnt = uint64(0);
 		while ishghandle(h)&&get(h,'Value')
 			cnt = cnt+1;
 			%
-			if cnt==23
-				cnt = 0;
-				ids = 1+mod(find(strcmpi(scheme,mcs)),numel(mcs));
-				set(H.bGrp,'SelectedObject',H.bEig(ids));
-				scheme = mcs{ids};
+			if mod(cnt,23)<1
+				ids = 1+mod(find(strcmpi(H.sch,mcs)),numel(mcs));
+				set(H.bGrp, 'SelectedObject',H.bEig(ids));
+				H.sch = mcs{ids};
 			end
 			%
-			if N<=1
-				mov = +1;
-			elseif N>=dfn
-				mov = -1;
+			if mod(cnt,69)<1
+				H.rev = ~H.rev;
 			end
-			N = mov + N;
 			%
-			set(H.vSld,'Value',N)
-			%bmvUpDt();
+			upb = (upb || N<=1) && N<dfn;
+			N = N - 1 + 2*upb;
+			%
+			set(H.vSld, 'Value',N)
 			%
 			% Faster/slower:
 			pause(0.1);
@@ -238,7 +250,7 @@ mov = -1;
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%brewermap_view
 function H = bmvPlot(ClBk, xyz, lbd, rbd, stp, mcs)
-% Draw a new figure with RGBplot axes, ColorBar axes, and uicontrol sliders.
+% Create a new figure with RGB axes, ColorBar axes, and uicontrol sliders.
 %
 M = 9; % buttons per column
 gap = 0.01; % gaps
@@ -249,19 +261,21 @@ cbw = 0.21; % width of both colorbars
 axh = 1-uih-2*gap; % axes height
 wdt = 1-cbw-2*gap; % axes width
 %
+H = struct();
 H.fig = figure('HandleVisibility','callback', 'Color','white',...
-	'IntegerHandle','off', 'NumberTitle','off',...
+	'IntegerHandle','off', 'NumberTitle','off', 'Units','normalized',...
 	'Name','ColorBrewer Interactive ColorScheme Selector',...
 	'MenuBar','figure', 'Toolbar','none', 'Tag',mfilename);
 %
 % Add 2D lineplot:
-H.ax2D = axes('Parent',H.fig, 'Position',[gap, uih+gap, wdt, axh],...
+H.ax2D = axes('Parent',H.fig, 'Position',[gap,uih+gap,wdt,axh], 'Box','on',...
 	'ColorOrder',[1,0,0; 0,1,0; 0,0,1; 0.6,0.6,0.6], 'HitTest','off',...
 	'Visible','off', 'XLim',[0,1], 'YLim',[0,1], 'XTick',[], 'YTick',[]);
-H.ln2D = line([0,0,0,0;1,1,1,1],[0,0,0,0;1,1,1,1], 'Parent',H.ax2D, 'Visible','off');
+H.ln2D = line([0,0,0,0;1,1,1,1],[0,0,0,0;1,1,1,1], 'Parent',H.ax2D,...
+	'Visible','off', 'Linestyle','-', 'Marker','.');
 %
 % Add 3D scatterplot:
-H.ax3D = axes('Parent',H.fig, 'OuterPosition',[0, uih, wdt+2*gap, 1-uih],...
+H.ax3D = axes('Parent',H.fig, 'OuterPosition',[0,uih,wdt+2*gap,1-uih],...
 	'Visible','on', 'XLim',[0,1], 'YLim',[0,1], 'ZLim',[0,1], 'HitTest','on');
 H.pt3D = patch('Parent',H.ax3D, 'XData',[0;1], 'YData',[0;1], 'ZData',[0;1],...
 	'Visible','on', 'LineStyle','none', 'FaceColor','none', 'MarkerEdgeColor','none',...
@@ -282,7 +296,7 @@ H.demo = uicontrol(H.fig, 'Style','togglebutton', 'Units','normalized',...
 	'Position',[gap,uih+gap+0*bth,btw,bth], 'String','Demo',...
 	'Max',1, 'Min',0, 'Callback',ClBk.bmvDemo);
 % Add 2D/3D button:
-H.D2D3 = uicontrol(H.fig, 'Style','togglebutton', 'Units','normalized',...
+H.is2d = uicontrol(H.fig, 'Style','togglebutton', 'Units','normalized',...
 	'Position',[gap,uih+gap+1*bth,btw,bth], 'String','2D / 3D',...
 	'Max',1, 'Min',0, 'Callback',ClBk.bmv2D3D);
 % Add reverse button:
