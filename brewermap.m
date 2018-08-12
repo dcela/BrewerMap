@@ -76,8 +76,8 @@ function [map,num,typ] = brewermap(N,scheme)
 % plot(X,Y, 'linewidth',4)
 %
 %%% Multi-line plot in a loop:
+% set(0,'DefaultAxesColorOrder',brewermap(NaN,'Accent'))
 % N = 6;
-% set(0,'DefaultAxesColorOrder',brewermap(N,'Accent'))
 % X = linspace(0,pi*3,1000);
 % Y = bsxfun(@(x,n)n*sin(x+2*n*pi/N), X(:), 1:N);
 % for n = 1:N
@@ -110,13 +110,14 @@ function [map,num,typ] = brewermap(N,scheme)
 %% Input and Output Arguments %%
 %
 %%% Inputs (*=default):
-% N = NumericScalar, N>=0, an integer to define the colormap length.
-%   = *[], use the length of the current figure's colormap (see COLORMAP).
-%   = CharRowVector, to preselect this ColorBrewer colorscheme for later use.
+% N = NumericScalar, N>=0, an integer to specify the colormap length.
+%   = *[], same length as the current figure's colormap (see COLORMAP).
+%   = NaN, same length as the defining RGB nodes (useful for Line ColorOrder).
+%   = CharRowVector, to preselect a ColorBrewer colorscheme for later use.
 %   = 'plot', create a figure showing all of the ColorBrewer colorschemes.
 %   = 'list', return a cell array of strings listing all ColorBrewer colorschemes.
 % scheme = CharRowVector, a ColorBrewer colorscheme name.
-%        = *none, use the preselected colorscheme (must be set previously!).
+%        = *none, uses the preselected colorscheme (must be set previously!).
 %
 %%% Outputs:
 % map = NumericMatrix, size Nx3, a colormap of RGB values between 0 and 1.
@@ -151,7 +152,7 @@ elseif isnumeric(N) % Input colormap length and the preselected colorscheme.
 	assert(~isempty(idp),msg)
 	[map,num,typ] = bmSample(N,isr,raw(idp));
 else
-	assert(ischar(N)&&isrow(N),'The first argument must be a 1xN char or scalar numeric.')
+	assert(ischar(N)&&isrow(N),'The first argument must be a 1xN char or a scalar numeric.')
 	switch lower(N)
 		case 'plot' % Plot all colorschemes in a figure.
 			bmPlotFig(raw)
@@ -183,14 +184,24 @@ end
 function [map,num,typ] = bmSample(N,isr,raw)
 % Pick a colorscheme, downsample/interpolate to the requested colormap length.
 %
-if isempty(N)
-	N = size(get(gcf,'colormap'),1);
-else
-	assert(isscalar(N)&&isreal(N),'First argument must be a real numeric scalar, or empty.')
-end
-%
 num = raw.num;
 typ = raw.typ;
+%
+if isempty(N)
+	N = size(get(gcf,'colormap'),1);
+elseif isscalar(N)&&isnan(N)
+	N = num;
+else
+	assert(isscalar(N),'First argument must be a numeric scalar, or empty.')
+	assert(isreal(N),'Input <N> must be a real numeric: %g+%gi',N,imag(N))
+	assert(fix(N)==N&&N>=0,'Input <N> must be positive integer: %g',N)
+end
+%
+if N==0
+	map = nan(0,3);
+	return
+end
+%
 % downsample:
 [idx,itp] = bmIndex(N,num,typ);
 map = raw.rgb(idx,:)/255;
